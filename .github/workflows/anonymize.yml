@@ -1,0 +1,50 @@
+name: Anonymize Calendar
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: anonymize-calendar
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt.easy_install
+
+      - name: Run anonymizer
+        env:
+          SOURCE_CAL_URL: ${{ secrets.SOURCE_CAL_URL }}
+        run: |
+          python ./convertiCal-chatgpt.py --output output.ics
+
+      - name: Commit and push if changed
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain -- output.ics)" ]; then
+            git add -A output.ics
+            git commit -m "chore: update output.ics [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi
