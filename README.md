@@ -100,6 +100,7 @@ Commits use `chore: update output.ics [skip ci]` when there are changes.
 ## Notes & Behavior
 - UID policy: the script assigns a deterministic UID derived from DTSTART/DTEND/recurrence info to preserve client deduplication across refreshes. This differs from the original, which deleted UIDs.
 - Timezone: event timestamps are normalized to Asia/Tokyo (JST) with `TZID=Asia/Tokyo`, and a `VTIMEZONE` component is included. All-day events remain date-only.
+- Overnight visibility: stays that cross midnight are emitted as all-day events with exclusive `DTEND` (checkout day not shaded), so month views in embedded Google Calendar show clear bars.
 - Atomic writes: output is written to a temp file and then moved into place to avoid partial reads by consumers.
 - Scrubbing: SUMMARY/ DESCRIPTION are set to "Unavailable" by default; pass `--summary` and `--description` to override. LOCATION is cleared unless `--keep-location` is set.
 - Validation: the script re-parses the generated `.ics` to catch serialization issues early.

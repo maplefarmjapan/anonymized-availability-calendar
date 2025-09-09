@@ -242,6 +242,34 @@ def anonymize_calendar(cal: Calendar, summary_text: str, description_text: str, 
                 # If normalization fails, keep original value but continue
                 pass
 
+        # Convert overnight stays to all-day bars (JST) for better visibility in Google Calendar
+        try:
+            jst = ZoneInfo("Asia/Tokyo")
+            ds = component.get("DTSTART")
+            de = component.get("DTEND")
+            ds_val = getattr(ds, "dt", None) if ds is not None else None
+            de_val = getattr(de, "dt", None) if de is not None else None
+            if isinstance(ds_val, datetime) and isinstance(de_val, datetime):
+                ds_local = ds_val.astimezone(jst)
+                de_local = de_val.astimezone(jst)
+                if de_local.date() > ds_local.date():
+                    # Overnight or multi-night: use all-day exclusive dates
+                    component["DTSTART"] = ds_local.date()
+                    component["DTEND"] = de_local.date()
+                    # Remove TZID if present (date-only values should not carry TZID)
+                    try:
+                        if hasattr(component["DTSTART"], "params"):
+                            component["DTSTART"].params.pop("TZID", None)
+                        if hasattr(component["DTEND"], "params"):
+                            component["DTEND"].params.pop("TZID", None)
+                    except Exception:
+                        pass
+                    # Mark as opaque (busy)
+                    component["TRANSP"] = "OPAQUE"
+        except Exception:
+            # Non-fatal if we can't convert; keep event as-is
+            pass
+
         # Reset SEQUENCE to a stable value and set anonymized UID
         if "SEQUENCE" in component:
             component["SEQUENCE"] = 0
