@@ -103,6 +103,7 @@ Commits use `chore: update output.ics [skip ci]` when there are changes.
 - Atomic writes: output is written to a temp file and then moved into place to avoid partial reads by consumers.
 - Scrubbing: SUMMARY/ DESCRIPTION are set to "Unavailable" by default; pass `--summary` and `--description` to override. LOCATION is cleared unless `--keep-location` is set.
 - Validation: the script re-parses the generated `.ics` to catch serialization issues early.
+ - Trimming: events whose end time is more than 1 year in the past (relative to current JST) are omitted from the output to keep the calendar concise.
 
 ## Migrating from `convertiCal-grok.py`
 - Replace existing invocations with `./convertiCal-chatgpt.py`.

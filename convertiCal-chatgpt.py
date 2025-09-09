@@ -29,6 +29,7 @@ from typing import Optional
 import requests
 from icalendar import Calendar, vDatetime, Timezone, TimezoneStandard
 from zoneinfo import ZoneInfo
+from dateutil.relativedelta import relativedelta
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -196,6 +197,20 @@ def _ensure_vtimezone_jst(cal: Calendar) -> None:
 def anonymize_calendar(cal: Calendar, summary_text: str, description_text: str, clear_location: bool) -> Calendar:
     _normalize_calendar_metadata(cal)
     _ensure_vtimezone_jst(cal)
+    to_remove = []
+    jst = ZoneInfo("Asia/Tokyo")
+    now_jst = datetime.now(tz=jst)
+    cutoff = now_jst - relativedelta(years=1)
+
+    def _as_dt_jst(value):
+        # Convert date or datetime to aware datetime in JST
+        if isinstance(value, datetime):
+            return _to_jst(value)
+        if isinstance(value, date):
+            # Treat DATE values as end-of-day for inclusive comparison
+            return datetime(value.year, value.month, value.day, 23, 59, 59, tzinfo=jst)
+        return now_jst  # fallback safe default
+
     for component in cal.walk("VEVENT"):
         component["SUMMARY"] = summary_text
         component["DESCRIPTION"] = description_text
@@ -232,6 +247,25 @@ def anonymize_calendar(cal: Calendar, summary_text: str, description_text: str, 
             component["SEQUENCE"] = 0
 
         component["UID"] = make_anonymized_uid(component)
+
+        # Determine event end for trimming
+        dtend_prop = component.get("DTEND")
+        dtstart_prop = component.get("DTSTART")
+        end_dt = None
+        if dtend_prop is not None:
+            end_dt = _as_dt_jst(getattr(dtend_prop, "dt", dtend_prop))
+        elif dtstart_prop is not None:
+            end_dt = _as_dt_jst(getattr(dtstart_prop, "dt", dtstart_prop))
+
+        if end_dt is not None and end_dt < cutoff:
+            to_remove.append(component)
+
+    # Remove old events
+    for comp in to_remove:
+        try:
+            cal.subcomponents.remove(comp)  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     return cal
 
