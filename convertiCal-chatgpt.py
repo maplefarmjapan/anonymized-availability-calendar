@@ -93,22 +93,28 @@ def _norm_dt(value) -> str:
 
 
 def make_anonymized_uid(component) -> str:
-    dtstart = component.get("DTSTART")
-    dtend = component.get("DTEND")
+    def _val(x):
+        if x is None:
+            return None
+        # icalendar properties expose `.dt`; but we may have plain date/datetime
+        return getattr(x, "dt", x)
+
+    dtstart = _val(component.get("DTSTART"))
+    dtend = _val(component.get("DTEND"))
     duration = component.get("DURATION")
     rrule = component.get("RRULE")
     rdate = component.get("RDATE")
     exdate = component.get("EXDATE")
-    rid = component.get("RECURRENCE-ID")
+    rid = _val(component.get("RECURRENCE-ID"))
 
     parts = [
-        _norm_dt(dtstart.dt) if dtstart is not None else "",
-        _norm_dt(dtend.dt) if dtend is not None else "",
+        _norm_dt(dtstart) if dtstart is not None else "",
+        _norm_dt(dtend) if dtend is not None else "",
         str(duration) if duration is not None else "",
         str(rrule) if rrule is not None else "",
         str(rdate) if rdate is not None else "",
         str(exdate) if exdate is not None else "",
-        _norm_dt(rid.dt) if rid is not None else "",
+        _norm_dt(rid) if rid is not None else "",
     ]
     basis = "|".join(parts)
     digest = hashlib.sha256(basis.encode("utf-8")).hexdigest()[:20]
