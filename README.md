@@ -51,6 +51,12 @@ Increase verbosity (info/debug):
 ./convertiCal-chatgpt.py --source "$SOURCE_CAL_URL" -vv   # debug
 ```
 
+Merge adjacent stays (optional):
+```bash
+# Produces all-day bars that merge back-to-back stays (checkout and same-day checkin)
+./convertiCal-chatgpt.py --source "$SOURCE_CAL_URL" --merge-adjacent-stays -v
+```
+
 HTTP behavior flags:
 - `--timeout 10` (seconds)
 - `--retries 3` (transient errors)

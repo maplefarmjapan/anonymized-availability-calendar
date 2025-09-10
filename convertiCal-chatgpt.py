@@ -27,7 +27,7 @@ from tempfile import NamedTemporaryFile
 from typing import Optional
 
 import requests
-from icalendar import Calendar, vDatetime, Timezone, TimezoneStandard
+from icalendar import Calendar, Event, vDatetime, vDate, Timezone, TimezoneStandard
 from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from requests.adapters import HTTPAdapter
@@ -200,13 +200,96 @@ def _ensure_vtimezone_jst(cal: Calendar) -> None:
     cal.add_component(vtz)
 
 
-def anonymize_calendar(cal: Calendar, summary_text: str, description_text: str, clear_location: bool) -> Calendar:
+def anonymize_calendar(
+    cal: Calendar,
+    summary_text: str,
+    description_text: str,
+    clear_location: bool,
+    merge_adjacent_stays: bool = False,
+) -> Calendar:
     _normalize_calendar_metadata(cal)
     _ensure_vtimezone_jst(cal)
     to_remove = []
     jst = ZoneInfo("Asia/Tokyo")
     now_jst = datetime.now(tz=jst)
     cutoff = now_jst - relativedelta(years=1)
+
+    if merge_adjacent_stays:
+        # Build stay intervals [start_date, end_date_exclusive) in JST
+        intervals: list[tuple[date, date]] = []
+
+        def _date_or_none(x):
+            if x is None:
+                return None
+            val = getattr(x, "dt", x)
+            val = _to_jst(val)
+            if isinstance(val, datetime):
+                return val.date()
+            if isinstance(val, date):
+                return val
+            return None
+
+        for component in cal.walk("VEVENT"):
+            ds = component.get("DTSTART")
+            de = component.get("DTEND")
+            ds_d = _date_or_none(ds)
+            de_d = _date_or_none(de)
+            if ds_d is None or de_d is None:
+                continue
+            if de_d > ds_d:
+                intervals.append((ds_d, de_d))
+
+        if intervals:
+            # Sort and merge touching/overlapping intervals
+            intervals.sort(key=lambda x: (x[0], x[1]))
+            merged: list[tuple[date, date]] = []
+            for s, e in intervals:
+                if not merged:
+                    merged.append((s, e))
+                    continue
+                ls, le = merged[-1]
+                if s <= le:  # overlap or touch (le == s)
+                    if e > le:
+                        merged[-1] = (ls, e)
+                else:
+                    merged.append((s, e))
+
+            # Remove existing VEVENTs
+            try:
+                cal.subcomponents = [c for c in cal.subcomponents if getattr(c, "name", "") != "VEVENT"]  # type: ignore[attr-defined]
+            except Exception:
+                # Fallback remove loop
+                for c in list(cal.subcomponents):  # type: ignore[attr-defined]
+                    if getattr(c, "name", "") == "VEVENT":
+                        try:
+                            cal.subcomponents.remove(c)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+
+            # Add merged stays as all-day events
+            for s, e in merged:
+                # Skip very old intervals
+                # Compare using inclusive end (e - 1 day, 23:59:59)
+                try:
+                    from datetime import timedelta
+                    end_inclusive = datetime(e.year, e.month, e.day, 0, 0, 0, tzinfo=jst) - timedelta(seconds=1)
+                except Exception:
+                    end_inclusive = now_jst
+                if end_inclusive < cutoff:
+                    continue
+
+                ev = Event()
+                ev.add("summary", summary_text)
+                ev.add("description", description_text)
+                ev.add("dtstart", vDate(s))
+                ev.add("dtend", vDate(e))  # exclusive checkout date
+                ev.add("transp", "OPAQUE")
+
+                # Stable anonymized UID based on timing
+                ev["UID"] = make_anonymized_uid(ev)
+                cal.add_component(ev)
+
+        return cal
 
     def _as_dt_jst(value):
         # Convert date or datetime to aware datetime in JST
@@ -367,6 +450,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.set_defaults(clear_location=True)
     parser.add_argument(
+        "--merge-adjacent-stays",
+        dest="merge_adjacent_stays",
+        action="store_true",
+        help="Merge adjacent/overlapping overnight stays into single all-day events",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -410,6 +499,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             summary_text=args.summary,
             description_text=args.description,
             clear_location=args.clear_location,
+            merge_adjacent_stays=args.merge_adjacent_stays,
         )
 
         # Validate by re-parsing serialized output
