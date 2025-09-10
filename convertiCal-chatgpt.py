@@ -27,7 +27,7 @@ from tempfile import NamedTemporaryFile
 from typing import Optional
 
 import requests
-from icalendar import Calendar, vDatetime, Timezone, TimezoneStandard
+from icalendar import Calendar, vDatetime, vDate, Timezone, TimezoneStandard
 from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from requests.adapters import HTTPAdapter
@@ -200,7 +200,13 @@ def _ensure_vtimezone_jst(cal: Calendar) -> None:
     cal.add_component(vtz)
 
 
-def anonymize_calendar(cal: Calendar, summary_text: str, description_text: str, clear_location: bool) -> Calendar:
+def anonymize_calendar(
+    cal: Calendar,
+    summary_text: str,
+    description_text: str,
+    clear_location: bool,
+    force_all_day: bool = False,
+) -> Calendar:
     _normalize_calendar_metadata(cal)
     _ensure_vtimezone_jst(cal)
     to_remove = []
@@ -255,23 +261,39 @@ def anonymize_calendar(cal: Calendar, summary_text: str, description_text: str, 
             de = component.get("DTEND")
             ds_val = getattr(ds, "dt", None) if ds is not None else None
             de_val = getattr(de, "dt", None) if de is not None else None
-            if isinstance(ds_val, datetime) and isinstance(de_val, datetime):
+
+            def _set_all_day(start_date, end_exclusive_date):
+                # Use explicit vDate to serialize as YYYYMMDD and be recognized as all-day
+                component["DTSTART"] = vDate(start_date)
+                component["DTEND"] = vDate(end_exclusive_date)
+                try:
+                    if hasattr(component["DTSTART"], "params"):
+                        component["DTSTART"].params.pop("TZID", None)
+                    if hasattr(component["DTEND"], "params"):
+                        component["DTEND"].params.pop("TZID", None)
+                except Exception:
+                    pass
+                component["TRANSP"] = "OPAQUE"
+
+            # If both are timed datetimes
+            if isinstance(ds_val, datetime) and (de_val is None or isinstance(de_val, datetime)):
                 ds_local = ds_val.astimezone(jst)
-                de_local = de_val.astimezone(jst)
-                if de_local.date() > ds_local.date():
-                    # Overnight or multi-night: use all-day exclusive dates
-                    component["DTSTART"] = ds_local.date()
-                    component["DTEND"] = de_local.date()
-                    # Remove TZID if present (date-only values should not carry TZID)
-                    try:
-                        if hasattr(component["DTSTART"], "params"):
-                            component["DTSTART"].params.pop("TZID", None)
-                        if hasattr(component["DTEND"], "params"):
-                            component["DTEND"].params.pop("TZID", None)
-                    except Exception:
-                        pass
-                    # Mark as opaque (busy)
-                    component["TRANSP"] = "OPAQUE"
+                de_local = de_val.astimezone(jst) if isinstance(de_val, datetime) else None
+                if de_local and de_local.date() > ds_local.date():
+                    # Overnight or multi-night: use all-day bars; DTEND is checkout day (exclusive)
+                    _set_all_day(ds_local.date(), de_local.date())
+                elif force_all_day:
+                    # Same-day timed event: expand to all-day block for that day
+                    _set_all_day(ds_local.date(), (ds_local.date()))
+                    # For single-day all-day, DTEND must be next day; adjust below
+                    from datetime import timedelta
+                    component["DTEND"] = vDate(ds_local.date() + timedelta(days=1))
+            # If DTSTART is date-only and force_all_day is requested but DTEND missing, ensure exclusive DTEND
+            elif force_all_day and isinstance(ds_val, date) and not isinstance(ds_val, datetime):
+                # Ensure DTEND exists and is exclusive next day when missing
+                if de_val is None:
+                    from datetime import timedelta
+                    _set_all_day(ds_val, ds_val + timedelta(days=1))
         except Exception:
             # Non-fatal if we can't convert; keep event as-is
             pass
@@ -367,6 +389,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.set_defaults(clear_location=True)
     parser.add_argument(
+        "--force-all-day",
+        dest="force_all_day",
+        action="store_true",
+        help="Convert all timed events into all-day day blocks",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -410,6 +438,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             summary_text=args.summary,
             description_text=args.description,
             clear_location=args.clear_location,
+            force_all_day=args.force_all_day,
         )
 
         # Validate by re-parsing serialized output

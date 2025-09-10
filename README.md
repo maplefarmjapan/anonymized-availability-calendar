@@ -45,6 +45,11 @@ Keep the LOCATION field (by default it is cleared):
 ./convertiCal-chatgpt.py --source "$SOURCE_CAL_URL" --keep-location
 ```
 
+Force all events to appear as full-day blocks (useful when the source has timed entries like "4pm" but you want the entire day marked busy):
+```bash
+./convertiCal-chatgpt.py --source "$SOURCE_CAL_URL" --force-all-day
+```
+
 Increase verbosity (info/debug):
 ```bash
 ./convertiCal-chatgpt.py --source "$SOURCE_CAL_URL" -v    # info
