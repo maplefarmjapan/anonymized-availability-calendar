@@ -35,7 +35,7 @@ jobs:
         env:
           SOURCE_CAL_URL: ${{ secrets.SOURCE_CAL_URL }}
         run: |
-          python ./convertiCal-chatgpt.py --output output.ics
+          python ./convertiCal-chatgpt.py --merge-adjacent-stays --output output.ics
 
       - name: Commit and push if changed
         run: |
