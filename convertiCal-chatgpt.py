@@ -23,6 +23,7 @@ import logging
 import os
 import sys
 from datetime import date, datetime, timezone
+from datetime import timedelta
 from tempfile import NamedTemporaryFile
 from typing import Optional
 
@@ -194,8 +195,10 @@ def _ensure_vtimezone_jst(cal: Calendar) -> None:
     std = TimezoneStandard()
     std.add("dtstart", datetime(1951, 9, 9, 0, 0, 0))
     std.add("tzname", "JST")
-    std.add("tzoffsetfrom", "+1000")
-    std.add("tzoffsetto", "+0900")
+    #std.add("tzoffsetfrom", "+1000")
+    #std.add("tzoffsetto", "+0900")
+    std.add("tzoffsetfrom", timedelta(hours=9))
+    std.add("tzoffsetto", timedelta(hours=9))
     vtz.add_component(std)
     cal.add_component(vtz)
 
