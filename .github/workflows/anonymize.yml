@@ -2,7 +2,7 @@ name: Anonymize Calendar
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/45 * * * *"
   workflow_dispatch:
 
 permissions:
